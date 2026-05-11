@@ -47,6 +47,7 @@
 - `useradd -m -s /bin/bash -G agent-common,agent-core agent-dev` : 개발 계정 생성
 - `useradd -m -s /bin/bash -G agent-common agent-test` : test 계정 생성
 
+- ![alt text](image-3.png)
 ----
 ## 3단계: 디렉토리 구조 생성 및 최소 권한(ACL) 부여 (File System)
 
@@ -63,6 +64,16 @@
     chown agent-admin:agent-core /var/log/agent-app # 해당 dir 소유자 및 그룹 변경
     chmod 770 /var/log/agent-app # 해당 dir 권한 변경
 
+# agent-admin 관련 dir에 core group이 접근 가능하게 함
+    chgrp agent-core /home/agent-admin
+    chmod 770 /home/agent-admin
+    chgrp agent-core /home/agent-admin/agent-app 
+    chmod 770 /home/agent-admin/agent-app
+    chown agent-admin:agent-core /home/agent-admin/agent-app/bin
+```
+- ![alt text](image-4.png)
+    - 소유자 그룹및 권한 변경 완료
+```bash
     su - agent-admin # 운영자 계정으로 전환
 
     export AGENT_HOME="/home/agent-admin/agent-app"
@@ -75,8 +86,9 @@
     # 디렉토리 권한 설정 (소유자 및 그룹은 R/W/X 가능, 나머지는 접근 불가)
     chmod 770 $AGENT_HOME/upload_files
     chmod 770 $AGENT_HOME/api_keys
-```
 
+```
+- ![alt text](image-5.png)
 
 ## 4단계: 애플리케이션 환경 및 보안 키 구성 (App Environment)
 
@@ -158,7 +170,7 @@
 # ==========================================
 
 # 기본 환경 변수 설정
-APP_NAME="agent_app.py"
+APP_NAME="agent-app"
 PORT=15034
 LOG_DIR="/var/log/agent-app"
 LOG_FILE="$LOG_DIR/monitor.log"
@@ -191,10 +203,11 @@ fi
 
 # 3. 방화벽(UFW) 상태 점검
 # systemctl is-active를 통해 서비스가 돌아가고 있는지 확인합니다.
-if ! systemctl is-active --quiet ufw; then
+if sudo ufw status 2>/dev/null | grep -qw "active"; then
+    echo "Checking firewall (UFW)... [OK]"
+else
     echo "[WARNING] 방화벽(UFW)이 꺼져 있습니다."
 fi
-
 # 4. 시스템 리소스 수집
 echo -e "\n[RESOURCE MONITORING]"
 
@@ -265,88 +278,5 @@ fi
 요구사항 5-3: 최종적으로 Agent READY 메시지가 출력되며, 15034 포트가 LISTEN 상태가 되는지 점검 []
 ```
 
-- 테스트용 앱 
-```python
-import os
-import time
-import socket
-import sys
 
-def boot_sequence():
-    print("> Starting Agent Boot Sequence...")
-    
-    # [1/5] User Account Check
-    time.sleep(0.5)
-    user = os.getlogin() if hasattr(os, 'getlogin') else os.environ.get('USER')
-    print(f"[1/5] Checking User Account               [OK]")
-    print(f"... Running as service user '{user}'")
-
-    # [2/5] Environment Variables Check
-    time.sleep(0.5)
-    required_envs = ["AGENT_HOME", "AGENT_PORT", "AGENT_UPLOAD_DIR", "AGENT_KEY_PATH", "AGENT_LOG_DIR"]
-    missing = [env for env in required_envs if env not in os.environ]
-    if missing:
-        print(f"[2/5] Verifying Environment Variables     [FAILED]")
-        print(f"... Missing: {', '.join(missing)}")
-        sys.exit(1)
-    print(f"[2/5] Verifying Environment Variables     [OK]")
-    print(f"... All required Envs correct")
-
-    # [3/5] Key File Check
-    time.sleep(0.5)
-    key_path = os.environ.get("AGENT_KEY_PATH")
-    if os.path.exists(key_path):
-        with open(key_path, 'r') as f:
-            key = f.read().strip()
-            if key == "agent_api_key_test":
-                print(f"[3/5] Checking Required Files             [OK]")
-                print(f"... Verified key file with correct key string.")
-            else:
-                print(f"[3/5] Checking Required Files             [FAILED]")
-                print(f"... Invalid key content.")
-                sys.exit(1)
-    else:
-        print(f"[3/5] Checking Required Files             [FAILED]")
-        print(f"... Key file not found at {key_path}")
-        sys.exit(1)
-
-    # [4/5] Port Availability Check
-    time.sleep(0.5)
-    port = int(os.environ.get("AGENT_PORT", 15034))
-    print(f"[4/5] Checking Port Availability          [OK]")
-    print(f"... Port {port} is available.")
-
-    # [5/5] Log Permission Check
-    time.sleep(0.5)
-    log_dir = os.environ.get("AGENT_LOG_DIR")
-    if os.access(log_dir, os.W_OK):
-        print(f"[5/5] Verifying Log Permission            [OK]")
-        print(f"... Log directory is writable: {log_dir}")
-    else:
-        print(f"[5/5] Verifying Log Permission            [FAILED]")
-        sys.exit(1)
-
-    print("-" * 60)
-    print("All Boot Checks Passed!")
-    print("Agent READY")
-
-def start_server():
-    port = int(os.environ.get("AGENT_PORT", 15034))
-    try:
-        # 0.0.0.0:15034 포트 바인딩 (모니터링 스크립트가 인식할 수 있게 함)
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(('0.0.0.0', port))
-            s.listen()
-            # 앱이 종료되지 않고 계속 포트를 점유하도록 무한 대기
-            while True:
-                time.sleep(10)
-    except Exception as e:
-        print(f"Error starting server: {e}")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    boot_sequence()
-    start_server()
-```
 
