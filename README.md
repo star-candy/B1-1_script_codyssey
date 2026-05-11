@@ -212,10 +212,15 @@ fi
 echo -e "\n[RESOURCE MONITORING]"
 
 # CPU 사용률: vmstat 명령어에서 유휴(idle) 비율을 가져와 100에서 빼줍니다.
+# vmstat 1 2 : 1초 간격으로 2번 측정해서 cpu 상태 보여줌
+# tail을 통해 출력 결과물 중 마지막 (실시간 측정 데이터만 출력)
+# awk '{print $15}'를 통해 15번째 칸의 데이터 뽑아옴 == CPU의 idle 상태 비율
 CPU_IDLE=$(vmstat 1 2 | tail -1 | awk '{print $15}')
 CPU_USAGE=$((100 - CPU_IDLE))
 
 # 메모리 사용률: free 명령어 결과에서 전체(Total) 대비 사용량(Used)의 비율을 계산합니다.
+# grep Mem, : mem으로 시작하는 줄 걸러냄
+# 2번째 칸은 전체 메모리, 3번째 칸은 사용중 메모리 의미
 MEM_USAGE=$(free | grep Mem | awk '{printf("%.1f", $3/$2 * 100)}')
 
 # 디스크 사용률: df 명령어에서 최상위 루트(/) 경로의 사용 퍼센트를 가져옵니다.
